@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>MirrorFit — قياسات ووضعية الجسم بالكاميرا</title>
+  <link rel="stylesheet" href="style.css" />
+  <!-- TensorFlow.js + Pose Detection -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection@latest/dist/pose-detection.min.js"></script>
+  <script src="script.js" defer></script>
+</head>
+<body>
+  <header>
+    <h1>MirrorFit</h1>
+    <p>قياسات تقديرية + تقييم وضعية الجسم — معالجة على جهازك فقط</p>
+  </header>
+  <main>
+    <section class="stage">
+      <video id="video" playsinline></video>
+      <canvas id="overlay"></canvas>
+      <div class="hud">
+        <div class="metric">
+          <span>عرض الكتف:</span>
+          <strong id="shoulderWidthPx">— px</strong>
+          <strong id="shoulderWidthCm">— سم</strong>
+        </div>
+        <div class="metric">
+          <span>الطول (تقديري):</span>
+          <strong id="heightPx">— px</strong>
+          <strong id="heightCm">— سم</strong>
+        </div>
+        <div class="metric">
+          <span>Posture Score:</span>
+          <strong id="postureScore">—/100</strong>
+        </div>
+      </div>
+    </section>
+    <section class="controls">
+      <button id="startBtn">تشغيل الكاميرا</button>
+      <button id="toggleSkel">إظهار/إخفاء الهيكل</button>
+      <button id="snapshotBtn">لقطة بالشبكة</button>
+      <div class="calib">
+        <label>المقياس (سم/بكسل):</label>
+        <input id="cmPerPx" type="number" step="0.0001" min="0" placeholder="0.20" />
+        <button id="autoCalib">معايرة تلقائية (كتف ~ 40سم)</button>
+        <button id="resetCalib">إعادة الضبط</button>
+      </div>
+      <details>
+        <summary>نصيحة خصوصية</summary>
+        <p>كل المعالجة بتحصل محليًا في المتصفح. ولا صورة بتتبعث لأي سيرفر.</p>
+      </details>
+    </section>
+  </main>
+  <footer>
+    <a href="https://github.com/tensorflow/tfjs" target="_blank" rel="noopener">TensorFlow.js</a> ·
+    <a href="https://github.com/tensorflow/tfjs-models/tree/master/pose-detection" target="_blank" rel="noopener">Pose Detection</a>
+  </footer>
+</body>
+</html>
