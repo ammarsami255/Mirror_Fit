@@ -1,6 +1,7 @@
 let videoEl, canvas, ctx, detector;
 let drawSkeleton = true;
 let cmPerPx = null;
+let heightSamples = [];
 
 const kpts = {
   nose: 0, leftEye: 1, rightEye: 2, leftEar: 3, rightEar: 4,
@@ -26,14 +27,14 @@ async function setup() {
     console.log('TensorFlow.js backend initialized:', tf.getBackend());
 
     if (typeof poseDetection === 'undefined') {
-      console.error('poseDetection is not defined. Ensure @tensorflow-models/pose-detection is loaded.');
-      alert('تعذر تحميل مكتبة الكشف عن الوضعيات. تأكد من الاتصال بالإنترنت وحاول مرة أخرى.');
+      console.error('poseDetection is not defined.');
+      alert('تعذر تحميل مكتبة الكشف عن الوضعيات.');
       return;
     }
 
     detector = await poseDetection.createDetector(
       poseDetection.SupportedModels.MoveNet,
-      { modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING }
+      { modelType: poseDetection.movenet.modelType.SINGLEPOSE_THUNDER }
     );
     console.log('Pose detector loaded successfully');
   } catch (err) {
@@ -64,8 +65,14 @@ function resizeCanvas() {
 function dist(a, b) { const dx = a.x - b.x, dy = a.y - b.y; return Math.hypot(dx, dy); }
 function mid(a, b) { return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }; }
 
-function pxToCm(px) {
-  return (cmPerPx ? (px * cmPerPx) : null);
+function pxToCm(px) { return cmPerPx ? (px * cmPerPx) : null; }
+
+function drawGuideBox() {
+  ctx.save();
+  ctx.strokeStyle = 'rgba(0, 255, 0, 0.5)';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(canvas.width * 0.2, canvas.height * 0.2, canvas.width * 0.6, canvas.height * 0.6);
+  ctx.restore();
 }
 
 function drawKeypointsAndEdges(keypoints) {
@@ -98,18 +105,28 @@ function drawKeypointsAndEdges(keypoints) {
   }
 }
 
-function postureScore(nose, midShoulders) {
-  const vx = nose.x - midShoulders.x;
-  const vy = midShoulders.y - nose.y;
-  const angleFromVertical = Math.atan2(Math.abs(vx), Math.max(1, vy)) * 180 / Math.PI;
-  const a = Math.min(30, Math.max(0, angleFromVertical));
-  const score = Math.round(100 * (1 - (a / 30)));
-  return { score, angle: angleFromVertical.toFixed(1) };
+function postureScore(nose, midShoulders, midHips) {
+  const vxNeck = nose.x - midShoulders.x;
+  const vyNeck = midShoulders.y - nose.y;
+  const neckAngle = Math.atan2(Math.abs(vxNeck), Math.max(1, vyNeck)) * 180 / Math.PI;
+  const neckScore = Math.round(100 * (1 - Math.min(30, Math.max(0, neckAngle)) / 30));
+
+  let backScore = 100;
+  if (midHips) {
+    const vxBack = midShoulders.x - midHips.x;
+    const vyBack = midHips.y - midShoulders.y;
+    const backAngle = Math.atan2(Math.abs(vxBack), Math.max(1, vyBack)) * 180 / Math.PI;
+    backScore = Math.round(100 * (1 - Math.min(15, Math.max(0, backAngle)) / 15));
+  }
+
+  const score = Math.round((neckScore + backScore) / 2);
+  return { score, neckAngle: neckAngle.toFixed(1) };
 }
 
 async function loop() {
   resizeCanvas();
   ctx.clearRect(0, 0, canvas.width, canvas.height);
+  drawGuideBox();
 
   if (!detector) {
     console.warn('Detector is not initialized yet.');
@@ -135,8 +152,10 @@ async function loop() {
 
     const ls = kp[kpts.leftShoulder], rs = kp[kpts.rightShoulder];
     const la = kp[kpts.leftAnkle], ra = kp[kpts.rightAnkle];
+    const lh = kp[kpts.leftHip], rh = kp[kpts.rightHip];
     const ns = kp[kpts.nose];
     const ms = (ls?.score > 0.3 && rs?.score > 0.3) ? mid(ls, rs) : null;
+    const mh = (lh?.score > 0.3 && rh?.score > 0.3) ? mid(lh, rh) : null;
 
     let shoulderPx = null, heightPx = null;
 
@@ -148,14 +167,17 @@ async function loop() {
 
     if (ns?.score > 0.3 && la?.score > 0.3 && ra?.score > 0.3) {
       const midAnk = mid(la, ra);
-      heightPx = dist(ns, midAnk) * 1.15;
+      const currentHeightPx = dist(ns, midAnk) * 1.15;
+      heightSamples.push(currentHeightPx);
+      if (heightSamples.length > 10) heightSamples.shift();
+      heightPx = heightSamples.reduce((a, b) => a + b, 0) / heightSamples.length;
       ctx.beginPath();
       ctx.moveTo(ns.x, ns.y); ctx.lineTo(midAnk.x, midAnk.y); ctx.setLineDash([8, 6]); ctx.stroke();
       ctx.setLineDash([]);
     }
 
     if (ns?.score > 0.3 && ms) {
-      const p = postureScore(ns, ms);
+      const p = postureScore(ns, ms, mh);
       document.getElementById('postureScore').textContent = `${p.score}/100`;
       const badge = document.getElementById('postureScore').parentElement;
       badge.style.filter = (p.score >= 80) ? 'drop-shadow(0 0 10px rgba(58,210,159,0.35))' :
@@ -208,7 +230,8 @@ function autoCalibrate() {
   if (!m) { alert('قِف قدّام الكاميرا بحيث كتافك باينين الأول.'); return; }
   const shoulderPx = parseFloat(m[1]);
   if (shoulderPx <= 0) { alert('تعذر القياس، جرّب تاني.'); return; }
-  cmPerPx = 40.0 / shoulderPx;
+  const shoulderCm = parseFloat(prompt('أدخل عرض الكتف بالسنتيمتر (افتراضي 40 سم):', '40')) || 40;
+  cmPerPx = shoulderCm / shoulderPx;
   document.getElementById('cmPerPx').value = cmPerPx.toFixed(4);
 }
 
